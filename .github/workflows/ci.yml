@@ -15,7 +15,7 @@ jobs:
   app:
     # NOT "Web app". The job name is what shows in the checks tab, which is one
     # of the few places a visitor reads, and this stopped being a web app when
-    # the browser build was deleted - the README says so in as many words.
+    # the browser build was deleted - the README describes a desktop app.
     name: App (type-check, assertions, build, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:

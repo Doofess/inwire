@@ -102,11 +102,12 @@ npm run pack               # the app, unpacked
 iscc installer/setup.iss   # installer: app plus service
 ```
 
-After installing, Settings > Updates downloads Npcap's own installer. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
+After installing, Settings > Updates downloads Npcap's official installer and opens its wizard, which shows Npcap's licence. Inwire never runs that installer silently. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
 ## Status
 
-- Version 0.5.0, in development. Windows only.
+- Version 0.5.0, in development. Windows only. [SCOPE.md](SCOPE.md) says what is in scope and what is not.
+- No account and no telemetry. [SECURITY.md](SECURITY.md#privacy-and-sensitive-data) lists every host the app can contact and the setting that allows it, and says where decryption keys are kept.
 - No public download: the installer's signing certificate is trusted only on the author's PC.
 - Decryption covers AEAD cipher suites only, not CBC suites or RSA private keys.
 

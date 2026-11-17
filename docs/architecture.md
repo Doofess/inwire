@@ -468,7 +468,7 @@ imported leaves its totals untouched (scenario 11 of
 `scripts/electron/monitoring-drive.ts`). Dissecting NetFlow/IPFIX frames inside
 a capture is a separate path (`src/services/flow/`) and is not a listener.
 
-Inwire can also collect NetFlow v5, NetFlow v9 or IPFIX from one router,
+**In use.** Inwire collects NetFlow v5, NetFlow v9 or IPFIX from one router,
 firewall or `softflowd`.
 It listens on an address and port you choose (2055 by default) and keeps a
 history on disk, up to a storage limit you set, that survives a restart. The
