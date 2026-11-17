@@ -467,7 +467,7 @@ check('the README promises no feature that was deleted',
  * general form: a figure in prose that cites where it comes from can be held
  * to it, and one that does not cannot be held to anything.
  */
-const layerClaim = readme.match(/\*\*(\d+) dissected layers\*\*/);
+const layerClaim = readme.match(/(\d+) dissected layers/);
 check('the README states a layer count', layerClaim !== null, true);
 if (layerClaim !== null) {
   check("...and it is the registry's own", Number(layerClaim[1]), LAYERS.length);
