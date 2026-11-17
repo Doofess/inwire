@@ -7,12 +7,12 @@
   "author": "Rotem Grinhut",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Doofess/Inwire.git"
+    "url": "git+https://github.com/Doofess/inwire.git"
   },
   "bugs": {
-    "url": "https://github.com/Doofess/Inwire/issues"
+    "url": "https://github.com/Doofess/inwire/issues"
   },
-  "homepage": "https://github.com/Doofess/Inwire#readme",
+  "homepage": "https://github.com/Doofess/inwire#readme",
   "keywords": [
     "packet-analyzer",
     "protocol-analyzer",

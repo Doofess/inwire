@@ -1,4 +1,4 @@
-# InWire — layered stack mark
+# Inwire — layered stack mark
 
 Five isometric plates, gap 9, lightest on top. Nothing but blue: every layer is a lightness step off `--primary`, same hue, same saturation.
 

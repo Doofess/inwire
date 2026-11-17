@@ -398,7 +398,7 @@ check('every `npm run` the documents name is a real script',
 // under one any more - `window.inwire` is the preload bridge and only exists
 // under Electron, so the page it served would have been broken from the first
 // render. It was the last thing in the visible tree that contradicted the
-// README's "It is not a web app".
+// README, which describes a desktop app.
 const EXEMPT = new Set(['build:electron', 'clean']);
 check('every script worth naming is named',
   scripts.filter((s) => !EXEMPT.has(s) && !named.includes(s)), []);
@@ -467,7 +467,7 @@ check('the README promises no feature that was deleted',
  * general form: a figure in prose that cites where it comes from can be held
  * to it, and one that does not cannot be held to anything.
  */
-const layerClaim = readme.match(/\*\*(\d+) dissected layers\*\*/);
+const layerClaim = readme.match(/(\d+) dissected layers/);
 check('the README states a layer count', layerClaim !== null, true);
 if (layerClaim !== null) {
   check("...and it is the registry's own", Number(layerClaim[1]), LAYERS.length);
@@ -496,11 +496,11 @@ check('every path in a README command exists',
 /**
  * The CI badge has to name the repository this clone points at.
  *
- * The repository is still called `NetView` on GitHub while the product is
- * called Inwire, so the badge's owner/repo is exactly the kind of detail that
- * gets "corrected" to the product name and then serves a 404 image. Read from
- * the remote rather than from `package.json`, whose `repository.url` says
- * `Inwire` and works only because GitHub redirects a rename.
+ * The repository has been renamed on GitHub more than once (`NetView`, then
+ * `Inwire`, now `inwire`), so the badge's owner/repo is exactly the kind of
+ * detail that goes stale and then serves a 404 image. Read from the remote
+ * rather than from `package.json`. Compared without case, because GitHub
+ * accepts any casing and an older clone may still carry `Doofess/Inwire`.
  *
  * Reported rather than asserted when there is no remote to ask: a clone with no
  * origin is a legitimate state and this check has nothing to say about it.
@@ -520,7 +520,7 @@ if (badge === null) {
     console.log('      no git remote to compare the badge against; not asserted');
   } else {
     const slug = remote.replace(/^.*github\.com[:/]/, '').replace(/\.git$/, '');
-    check("the badge's owner/repo matches the origin remote", badge[1], slug);
+    check("the badge's owner/repo matches the origin remote", badge[1].toLowerCase(), slug.toLowerCase());
   }
 }
 
