@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="256" height="256" role="img" aria-label="InWire">
-  <title>InWire — layered stack</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="256" height="256" role="img" aria-label="Inwire">
+  <title>Inwire — layered stack</title>
   <path d="M50 48 L90 68 L50 88 L10 68 Z" fill="#06386A"/>
   <path d="M50 39 L90 59 L50 79 L10 59 Z" fill="#0957A4"/>
   <path d="M50 30 L90 50 L50 70 L10 50 Z" fill="#0C75DF"/>

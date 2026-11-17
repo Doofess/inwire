@@ -1,157 +1,119 @@
-<img src="logo/inwire-layers-256.png" width="76" align="right" alt="">
+<img src="logo/inwire-layers-256.png" width="64" alt="Inwire logo: five stacked layers">
 
 # Inwire
 
-Inwire is a packet analyzer for Windows. Capture traffic, see which processes
-are using the network, and follow a connection packet by packet. You can also
-open an existing capture and work through it offline.
+A Wireshark-style packet analyzer for Windows: capture traffic on your own PC, see which program owns each connection, and read every packet and stream, with the app running without administrator rights.
 
-It's still in development. There isn't an installer to download yet, so for
-now you'll need to build it from source.
+[![CI](https://github.com/Doofess/inwire/actions/workflows/ci.yml/badge.svg)](https://github.com/Doofess/inwire/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/Doofess/inwire)](LICENSE)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6)
 
-[![CI](https://github.com/Doofess/Inwire/actions/workflows/ci.yml/badge.svg)](https://github.com/Doofess/Inwire/actions/workflows/ci.yml)
+![Inwire in the dark theme: the adapter sidebar with capture options, a packet list of DNS queries, and the selected frame's detail tree beside its hex bytes](docs/images/capture.png)
 
-![The packet list, a frame's fields and its bytes, in the dark theme](docs/images/capture.png)
+The screenshot shows synthetic traffic from the test harness.
 
-*The screenshots show synthetic traffic from the test harness, not a real capture.*
+## What it does
 
-## Working with traffic
+- Keeps a hand-virtualised packet list responsive during heavy capture, reading older rows back from disk. In replays of a recorded burst on the author's PC, the live view kept up with about 85,000 frames a second ([ADR 0072](docs/decisions/0072-shards-dissect-without-the-hot-path-tree.md)), and a 22-second burst at 94,000 a second ended with all 2,928,104 frames in the list and none skipped ([ADR 0053](docs/decisions/0053-the-live-path-falls-behind-on-disk.md)).
+- Captures through Npcap from several adapters, with BPF filters, ring files and autostop, and shows the process behind each connection. A separate Rust service holds the capture handle, so the app stays unelevated.
+- Runs display filters with Wireshark's field names (`ip.dst == 224.0.0.0/4`, `eth[0:2] == 0x0100`) over the whole capture on disk, including frames that have left memory.
+- Decodes about 100 protocols, from Ethernet and TCP to QUIC, HTTP/3, SMB2 and Kerberos, names 36 DCE/RPC interfaces and their operations, and decrypts TLS 1.2, TLS 1.3 and QUIC from a browser's `SSLKEYLOGFILE`.
+- Follows a TCP, UDP or QUIC conversation as a ladder diagram, with TCP connection states drawn beside the arrows. Adds statistics, a map of where the endpoints are and a NetFlow v5, v9 and IPFIX collector.
+- Exports to pcapng, pcap, CSV, JSON, Excel or a PDF report, and can anonymise a capture before you share it.
+- Has Light, Dark, Dim and High Contrast themes and seven accent colours; CI checks every accent against every theme for contrast.
 
-You can capture from several adapters at once, narrow the capture with a
-filter, or set it to start and stop on a schedule. Ring files let you keep
-recording within a limit you choose.
+## How it works
 
-The parser covers **142 dissected layers**, including DNS, TLS, QUIC, HTTP/1–3,
-Windows networking and flow-export protocols. Display filters use Wireshark
-field names, so familiar filters carry over.
+A Rust LocalSystem service reads frames from Npcap, writes them to pcapng and streams them over a named pipe. It dissects nothing, and it writes capture files with the requesting user's rights, not its own. Everything else runs with the user's rights: Electron's main process forwards the stream to sandboxed Workers that number and dissect frames. Rows go to the React renderer and to a capture store in its own utility process, which keeps an indexed copy on disk. There are no accounts or telemetry; the seven outbound hosts, each used only after you switch it on or click, are listed in [SECURITY.md](SECURITY.md).
 
-Once you have a capture, you can:
+```mermaid
+flowchart LR
+  subgraph priv["Privileged: LocalSystem"]
+    agent["Rust capture service"]
+  end
+  npcap["Npcap driver"] -->|"pcap_next_ex"| agent
+  agent -->|"pcapng, written as the pipe client"| raw[("Original capture files")]
+  subgraph user["Unprivileged: the user's session"]
+    main["Electron main"] -->|"MessagePort, credit-bounded batches"| worker["Pipeline Worker (sandboxed)"]
+    worker <-->|"TCP connections and QUIC flows"| shards["Shard Workers"]
+    worker -->|"bytes, then rows"| store["Capture store (utility process)"]
+    worker -->|"batched rows and bytes"| ui["Renderer: React, sandboxed"]
+    ui <-->|"row and filter queries"| store
+    mon["NetFlow collector (utility process)"] -->|"live feed, history"| ui
+  end
+  agent -->|"named pipe, ACL: interactive users, no remote"| main
+  main -.->|"catch-up reads"| raw
+  store --> disk[("Indexed capture on disk")]
+  exporter["Router or softflowd"] -->|"UDP: NetFlow, IPFIX"| mon
+```
 
-- Inspect a packet's fields alongside its bytes, or follow a TCP, UDP or QUIC
-  conversation in a ladder view.
-- Load an SSL key log to read TLS and QUIC traffic, including HTTP/2 and HTTP/3.
-- Find the process behind a connection and see which direction its traffic went.
-- Look through conversations, endpoints, protocols and expert findings, or plot
-  traffic and packet sizes. Statistics and the map use the packets currently
-  in memory; the packet list and display filter can reach the whole capture.
-- Compare the machine's network settings with what the capture shows, and run
-  an internet speed test from the Network sidebar.
-- Export packets to pcapng, pcap, CSV, JSON or Excel, create a PDF analysis report,
-  or anonymise a capture before sharing it.
+More in [docs/architecture.md](docs/architecture.md) and the 74 [decision records](docs/decisions/README.md).
 
-Captures are stored on disk. You can reopen the previous session after a
-restart and reach packets that have left the memory buffer. Replacing a capture
-requires your decision; a scheduled start warns about replacement when you arm
-it, and a ring can remove its oldest files according to the limits you set.
+## Design decisions
 
-Exports include the whole capture or the packets matching your display filter.
-Excel has a size limit because the workbook has to fit in memory; for larger
-exports, use CSV.
+- Capture runs in a separate service. Opening Npcap inside the app would need an elevated app or a driver open to every local user. With the split, Npcap can be installed admin-only, and the code that parses hostile traffic never runs elevated. The cost is a service, a pipe and a wire protocol to keep in step with the app. ([ADR 0033](docs/decisions/0033-the-agent-stays-a-separate-service.md))
+- The pipe's ACL is the authentication. The service used to listen on a localhost WebSocket with a pairing token; that was removed because every process on the machine can reach a loopback port. The pipe admits interactive users, SYSTEM and administrators, and refuses remote clients, and a separate check stops one client from ending another's capture. The cost: any program an interactive user runs can connect. ([ADR 0029](docs/decisions/0029-the-app-and-the-agent-talk-over-a-named-pipe.md))
+- The live view may fall behind; the capture file is the source of truth. When the Worker lags, main sheds whole frame batches but never a control message. A gap is read back from the service's pcapng, dissected in order, and the view rejoins live. If the file can no longer supply it, for example after a ring file was deleted, the gap is counted and marked as skipped. The cost: the screen can trail live traffic, and every byte is written to disk twice. ([ADR 0053](docs/decisions/0053-the-live-path-falls-behind-on-disk.md))
+- The packet list asks a row source for each visible row instead of indexing an array. Rows that have left memory come from the store behind a placeholder. Chromium caps an element at about 33.5 million pixels, so the list addresses at most 1,500,000 rows, and sorting by a column other than frame number covers only frames in memory. ([ADR 0025](docs/decisions/0025-the-capture-lives-on-disk.md), [ADR 0031](docs/decisions/0031-a-filter-answers-over-the-whole-capture.md))
+- Bundle size is a ratchet. `scripts/perf/bundle-size.ts` fails when the built renderer outgrows the committed `test/perf/ceilings.json`, and allows a raise only to the exact size of a build that outgrew it. The cost: launch time and filter latency vary by machine, so they never fail a check. ([ADR 0041](docs/decisions/0041-a-performance-ceiling-that-may-only-fall.md))
 
-The app has Light, Dark, Dim and High Contrast themes, plus an option to follow
-Windows.
+## Built with
 
-## Watching a network
+| Layer | Technology |
+|---|---|
+| Desktop app | Electron 44, TypeScript 5.8, Vite 8 |
+| UI | React 19, Tailwind CSS 4, Radix UI, d3, MapLibre GL |
+| State | React state and module stores through `useSyncExternalStore` |
+| Capture service | Rust 2021 on Npcap; dependencies `serde_json` and `windows-service` |
+| Decryption | AES-GCM, ChaCha20-Poly1305, HKDF and SHA-2 in TypeScript (`src/services/crypto/`) |
+| Export | ExcelJS, jsPDF |
+| Installer | Inno Setup 6.3 |
 
-Inwire can also collect NetFlow v5, NetFlow v9 or IPFIX from one router,
-firewall or `softflowd`.
-It listens on an address and port you choose (2055 by default) and keeps a
-history on disk, up to a storage limit you set, that survives a restart. The
-Monitoring screen, opened from the Network sidebar, shows traffic over time,
-top endpoints and top conversations for any range, and one click on a host
-filters the capture by it. Collection runs apart from capture, so starting,
-clearing or importing a capture leaves it alone. Sampled counts are shown as
-reported, with the estimate labelled as one. Its numbers are checked against
-tshark's and nfdump's decode of `softflowd`'s and pmacct's exports.
+## Testing and quality
 
-![The Monitoring sheet receiving NetFlow v5 from one exporter](docs/images/monitoring.png)
+- `npm run check` runs `tsc --noEmit`, then 365 assertion scripts covering dissectors, filter grammar, export writers, the service's wire format and theme contrast (the files `scripts/check.ts` discovers, minus the 66 manual tools it names).
+- The Rust service has 193 `#[test]` functions. Shared golden vectors hold it and the TypeScript client to one wire format.
+- `scripts/dissect/wireshark-abbrevs.ts` checks every field name against `tshark -G fields`. Parity scripts compare the dissection with tshark 4.6.8 on two private captures (12,858 and 14,782 frames); `test/fixtures/acceptance.json` sets floors such as 99.8% for the Protocol column, and those floors may only rise.
+- CI runs the checks and build on Windows and Ubuntu (the Ubuntu run covers the TypeScript and the build only), and `cargo test` plus a release build of the service on Windows. The tshark checks, the bundle ceiling and the Playwright drives of the built app need local inputs and skip there.
 
-sFlow can be inspected inside a packet capture, but isn't collected, and
-neither is IPFIX over TCP or SCTP.
+More in [docs/testing.md](docs/testing.md).
 
-## What connects to the internet?
+## Try it
 
-Captured packets stay on your machine. There are no accounts or telemetry.
+There is no release or hosted version yet. Build it from source on Windows.
 
-Every host the app can reach is listed here, with what turns it on. Nothing on
-this list is contacted until you turn it on or click.
+### Develop
 
-| Host | What it's for | Turned on by |
-|---|---|---|
-| `get.geojs.io` | Locating public addresses for the map | **Locate addresses** in Settings |
-| `ipapi.co` | Your connection's public address and provider, in the Network sidebar | **Locate addresses** |
-| `tiles.openfreemap.org` | Map tiles | The map, which appears only once **Locate addresses** is on |
-| `cloudflare-dns.com` | Reverse DNS for captured addresses, at most four queries at a time | **Reverse DNS** in Settings |
-| `updates.inwire.app` | The update feed | Update checks, off until you turn them on |
-| `npcap.com` | Npcap's official installer | An install or reinstall click in Settings → Updates |
-| `speed.cloudflare.com` | The speed test, up to 2 GB of traffic | Pressing Run |
-
-These services see your public address and the data each lookup needs. The
-NetFlow collector only receives: it listens where you tell it to, accepts only
-the exporter you name, and sends nothing.
-
-Loaded decryption keys stay in memory unless you choose to include them in a
-pcapng export. If you follow a key-log file, the app remembers its path and
-reads it again on later launches.
-
-See [SECURITY.md](SECURITY.md) for the details and known limitations.
-
-## Build and run
-
-You'll need Node.js 24+:
+You need Windows and Node.js 24 or newer. The app opens pcap and pcapng files without Npcap or the service:
 
 ```powershell
 npm ci
-npm run start:app
+npm run start:app   # build and open the app
+npm run dev         # UI work
+npm run check       # type-check and assertion scripts
 ```
 
-That builds and opens the desktop app. You can import capture files without
-installing a driver or running the capture service.
-
-Live capture needs [Npcap](https://npcap.com/#download) and Inwire's Rust agent
-installed as a Windows service. To build the agent and installer, you'll also
-need [rustup](https://rustup.rs) with the `stable-x86_64-pc-windows-gnu`
-toolchain and Inno Setup 6.3 or newer:
+Live capture needs the service and [Npcap](https://npcap.com/#download). Building the service and installer needs [rustup](https://rustup.rs) with `stable-x86_64-pc-windows-gnu` and Inno Setup 6.3 or newer:
 
 ```powershell
-npm run build:agent
-npm run pack
-iscc installer/setup.iss
+npm run build:agent        # the Rust capture service
+npm run build:launcher     # the inwire command-line launcher
+npm run pack               # the app, unpacked
+iscc installer/setup.iss   # installer: app plus service
 ```
 
-Npcap is installed separately. Settings → Updates can download its official
-installer; its licence wizard will open for you to complete. Administrator-only
-driver access is recommended. The Inwire app itself runs without elevation.
+After installing, Settings > Updates downloads Npcap's own installer. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
-The current signing setup uses a certificate trusted on the maintainer's PC.
-Public downloads are waiting on a publicly trusted certificate.
+## Status
 
-## Installing
+- Version 0.5.0, in development. Windows only.
+- No public download: the installer's signing certificate is trusted only on the author's PC.
+- Decryption covers AEAD cipher suites only, not CBC suites or RSA private keys.
 
-*This applies once a publicly signed release is published; there is no download
-today.* Run `Inwire-Setup.exe`. It installs the app and the capture service, but
-not Npcap. Open Settings → Updates and install Npcap from there: the app
-downloads Npcap's official installer from npcap.com and opens its own wizard,
-which shows Npcap's licence. Inwire never runs that installer silently. Choose
-the option that restricts driver access to administrators. Inwire captures
-through its service, so the setting costs you nothing.
+## How it was built
 
-Until a publicly trusted certificate exists, Windows SmartScreen warns when you
-run the installer.
-
-## Development
-
-The app uses Electron, React and TypeScript. Capture runs in a separate Rust
-service so the app doesn't need administrator rights. macOS and Linux have a
-Python agent, but no desktop app yet.
-
-Use `npm run dev` for UI work and `npm run check` to run the checks.
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, testing and how changes are
-handled. The [architecture decisions](docs/decisions/README.md) explain the
-choices behind the code.
-
-[SCOPE.md](SCOPE.md) describes where the project is going and what's in scope.
+Built with AI coding agents (Claude Code).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/Doofess/Inwire/blob/main/SECURITY.md
+    url: https://github.com/Doofess/inwire/blob/main/SECURITY.md
     about: Email Rotem2207@gmail.com privately. Do not post vulnerability details in an issue.
   - name: A protocol Inwire does not dissect yet
-    url: https://github.com/Doofess/Inwire/issues/new?labels=dissector&template=feature_request.yml
+    url: https://github.com/Doofess/inwire/issues/new?labels=dissector&template=feature_request.yml
     about: >
       Coverage against the reference analyzer is measured rather than claimed -
       test/fixtures/acceptance.json records what is missing per layer.

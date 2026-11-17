@@ -23,6 +23,19 @@ All four install the same `Inwire-Setup.exe` for a version. None registers the
 capture service itself and none installs Npcap: Npcap's own wizard runs from
 the Update Center, because its licence is shown with it (ADR 0032).
 
+## Installing
+
+*This applies once a publicly signed release is published; there is no download
+today.* Run `Inwire-Setup.exe`. It installs the app and the capture service, but
+not Npcap. Open Settings → Updates and install Npcap from there: the app
+downloads Npcap's official installer from npcap.com and opens its own wizard,
+which shows Npcap's licence. Inwire never runs that installer silently. Choose
+the option that restricts driver access to administrators. Inwire captures
+through its service, so the setting costs you nothing.
+
+Until a publicly trusted certificate exists, Windows SmartScreen warns when you
+run the installer.
+
 ## Identities
 
 These are fixed. Changing one breaks upgrades or uninstall on every PC that has

@@ -12,7 +12,7 @@ npm run start:app
 The desktop app runs on Windows. Python 3.10+ is needed for the Python agent
 and its tests; Npcap is needed for live capture. Building the Windows agent
 requires rustup with `stable-x86_64-pc-windows-gnu`, and compiling the installer
-requires Inno Setup 6.3 or newer. See [Build and run](README.md#build-and-run).
+requires Inno Setup 6.3 or newer. See [Build and run](README.md#develop).
 
 `npm run dev` serves the renderer through Vite for UI iteration.
 `npm run start:app` builds and launches against `app://inwire`, exercising the

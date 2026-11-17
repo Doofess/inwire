@@ -4,7 +4,7 @@
 
 Use GitHub's private vulnerability reporting: open the repository's **Security**
 tab and choose **Report a vulnerability**, or go straight to
-<https://github.com/Doofess/Inwire/security/advisories/new>. Do not open a
+<https://github.com/Doofess/inwire/security/advisories/new>. Do not open a
 public issue containing vulnerability details or sensitive captures.
 
 Include the Inwire version (`Settings → Updates`), the Npcap version, whether
@@ -21,7 +21,7 @@ that is a response target, not a service level.
 
 Inwire is in development and has no public release yet. Only the latest 0.x
 version is supported, and fixes are not backported. There is no public installer
-download; see the [README](README.md#build-and-run) for building it and the
+download; see the [README](README.md#develop) for building it and the
 signing limitations below.
 
 ## Attack surface
