@@ -115,7 +115,7 @@ After installing, Settings > Updates downloads Npcap's official installer and op
 
 ## How it was built
 
-Built with AI coding agents (Claude Code).
+Built with AI coding agents.
 
 ## License
 
