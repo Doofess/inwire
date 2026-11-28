@@ -4,15 +4,13 @@
  *   npx tsx scripts/claude/setup.ts
  *
  * Everything here is project scope on purpose: the owner's rule is that this
- * repo's Claude Code setup changes nothing outside it. So the plugin and
- * connector switches live in the committed `.claude/settings.json` rather than
- * in user settings, and this file holds them to their values - a key that
- * silently drops out puts every connector's instructions back into every turn.
+ * repo's Claude Code setup changes nothing outside it. The setup is a clean
+ * slate: no plugins, hooks, agents or MCP servers, only the project skills.
  *
  * The repo is public, so nothing committed under `.claude/` may carry a personal path or an email address. It reads only tracked files
  * and the ones it names, so it passes the same on CI's clean clone.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -33,41 +31,13 @@ function readJson(file: string): Record<string, unknown> | null {
 const settings = readJson('.claude/settings.json');
 check('.claude/settings.json parses', settings !== null);
 
-// The user level pins every plugin but the workflow core off; a project
-// switches on only what its sessions use. Inwire's are the two language
-// servers for its TypeScript and its Rust agent.
-check('the project switches on its language servers and nothing else', JSON.stringify(settings?.enabledPlugins) === JSON.stringify({
-  'typescript-lsp@claude-plugins-official': true,
-  'rust-analyzer-lsp@claude-plugins-official': true,
-}), JSON.stringify(settings?.enabledPlugins));
-check('claude.ai connectors are off for this project', settings?.disableClaudeAiConnectors === true);
-// No MCP server: the one it had, Microsoft Learn, went unused, and every server's
-// instructions ride along in every turn.
-check('no MCP server is pre-approved', settings !== null && !('enabledMcpjsonServers' in settings));
-
-// Hook wiring: each hook runs from the project root's copy, and a command
-// naming a script that is not there would fail on every tool call.
-interface HookEntry { matcher?: string; hooks?: Array<{ type?: string; command?: string; if?: string; timeout?: number }> }
-const hooks = (settings?.hooks ?? {}) as Record<string, HookEntry[]>;
-const wired = (event: string, matcher: string | undefined, script: string, condition?: string) =>
-  (hooks[event] ?? []).some((e) => e.matcher === matcher && (e.hooks ?? []).some((h) =>
-    h.type === 'command' && h.command === `node "$CLAUDE_PROJECT_DIR/.claude/hooks/${script}"` && h.if === condition));
-check('guard-shell runs before every Bash and PowerShell call', wired('PreToolUse', 'Bash|PowerShell', 'guard-shell.mjs'));
-// The `if` only saves a node spawn per shell call; the script's own regex is the filter.
-check('ensure-modules runs after a Bash worktree add', wired('PostToolUse', 'Bash', 'ensure-modules.mjs', 'Bash(*worktree add*)'));
-check('ensure-modules runs after a PowerShell worktree add', wired('PostToolUse', 'PowerShell', 'ensure-modules.mjs', 'PowerShell(*worktree add*)'));
-check('ensure-modules runs after EnterWorktree', wired('PostToolUse', 'EnterWorktree', 'ensure-modules.mjs'));
-check('ensure-modules runs as each subagent starts', wired('SubagentStart', undefined, 'ensure-modules.mjs'));
-const timeouts = Object.values(hooks).flat().flatMap((e) => e.hooks ?? []).filter((h) => h.command?.includes('ensure-modules.mjs')).map((h) => h.timeout);
-check('ensure-modules has 30 seconds wherever it runs', timeouts.length === 4 && timeouts.every((t) => t === 30), JSON.stringify(timeouts));
-for (const entry of Object.values(hooks).flat()) {
-  for (const h of entry.hooks ?? []) {
-    const script = h.command?.match(/\.claude\/hooks\/([\w.-]+\.mjs)/)?.[1];
-    check(`hook command ${h.command} names a script that exists`, script !== undefined && existsSync(`.claude/hooks/${script}`));
-  }
+// Clean slate: the project switches on nothing, and claude.ai connectors
+// follow the user's defaults.
+for (const key of ['enabledPlugins', 'hooks', 'enabledMcpjsonServers', 'disableClaudeAiConnectors']) {
+  check(`.claude/settings.json sets no ${key}`, settings !== null && !(key in settings));
 }
-
 check('the project has no .mcp.json', !existsSync('.mcp.json'));
+check('the project has no hooks folder', !existsSync('.claude/hooks'));
 
 const ignored = readFileSync('.gitignore', 'utf8').split(/\r?\n/);
 check('.gitignore keeps per-machine settings out', ignored.includes('.claude/settings.local.json'));
@@ -84,20 +54,6 @@ function frontmatter(file: string): Record<string, string> {
   return fields;
 }
 
-// The repo's own worker replaces the user's for this repo: same model and
-// effort, plus the command shapes that kept tripping the worktree guard.
-const WORKER = '.claude/agents/worker.md';
-if (existsSync(WORKER)) {
-  const fm = frontmatter(WORKER);
-  check('the worker keeps its name, model and effort', fm.name === 'worker' && fm.model === 'sonnet' && fm.effort === 'medium', JSON.stringify(fm));
-  const body = readFileSync(WORKER, 'utf8');
-  for (const rule of ['$VAR', 'sed -i', 'python', 'npx tsx scripts/', 'launchApp.ts', 'npm run check', 'start:app', 'test/']) {
-    check(`the worker carries the rule naming ${rule}`, body.includes(rule));
-  }
-} else {
-  check(`${WORKER} exists`, false);
-}
-
 /** Exact globs, never a walk of `.claude/`: its worktrees hold whole checkouts. */
 function inDir(dir: string, pick: (name: string) => string | null): string[] {
   if (!existsSync(dir)) return [];
@@ -106,9 +62,8 @@ function inDir(dir: string, pick: (name: string) => string | null): string[] {
     .filter((f): f is string => f !== null && existsSync(path.join(dir, f)))
     .map((f) => `${dir}/${f}`);
 }
-const agentFiles = inDir('.claude/agents', (n) => (n.endsWith('.md') ? n : null));
 const skillFiles = inDir('.claude/skills', (n) => (n.endsWith('/') ? `${n}SKILL.md` : null));
-const hookFiles = inDir('.claude/hooks', (n) => (n.endsWith('.mjs') ? n : null));
+check('the project has no agents', inDir('.claude/agents', (n) => (n.endsWith('.md') ? n : null)).length === 0);
 
 // Skills: each is listed in full so Claude can pick it, and a `paths:` scope
 // that matches no file would quietly never load it.
@@ -143,21 +98,13 @@ if (skillFiles.includes('.claude/skills/inwire-visual-design/SKILL.md')) {
 const local = readJson('.claude/settings.local.json');
 if (local) check('no local override hides a project skill', !('skillOverrides' in local));
 
-// tsc never sees `.claude/`, so a syntax error in a hook would only show as a
-// hook that silently allows everything.
-for (const hook of hookFiles) {
-  const result = spawnSync(process.execPath, ['--check', hook], { encoding: 'utf8' });
-  check(`${hook} parses`, result.status === 0, result.stderr.split('\n')[0]);
-}
-
 /**
  * A personal path or an email address in a public file. Generic on purpose:
  * naming the owner's profile folder here would publish the very thing it
  * guards. `example.invalid` is the reserved address the hook tests commit as.
  */
 const PERSONAL = /[A-Z]:[\\/](Users|dev)[\\/]|\/[a-z]\/Users\/|[\w.+-]+@(?!example\.invalid\b)[\w-]+\.[\w.]+/i;
-const committed = ['.claude/settings.json', '.claude/README.md', ...agentFiles, ...skillFiles, ...hookFiles,
-  'scripts/claude/setup.ts', 'scripts/claude/hooks.ts'];
+const committed = ['.claude/settings.json', '.claude/README.md', ...skillFiles, 'scripts/claude/setup.ts'];
 for (const file of committed.filter((f) => existsSync(f))) {
   const hit = readFileSync(file, 'utf8').match(PERSONAL);
   check(`${file} carries nothing personal`, hit === null, hit?.[0]);
