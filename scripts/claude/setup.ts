@@ -109,12 +109,12 @@ if (skillFiles.includes('.claude/skills/inwire-visual-design/SKILL.md')) {
 const local = readJson('.claude/settings.local.json');
 if (local) check('no local override hides a project skill', !('skillOverrides' in local));
 
-// tsc never sees `.claude/`, so a syntax error in the guard would only show as
-// a hook that silently allows everything.
-const GUARD = '.claude/hooks/guard-shell.mjs';
-if (existsSync(GUARD)) {
-  const result = spawnSync(process.execPath, ['--check', GUARD], { encoding: 'utf8' });
-  check(`${GUARD} parses`, result.status === 0, result.stderr.split('\n')[0]);
+// tsc never sees `.claude/`, so a syntax error in a hook would only show as a
+// hook that silently allows everything.
+const hookFiles = inDir('.claude/hooks', (n) => (n.endsWith('.mjs') ? n : null));
+for (const hook of hookFiles) {
+  const result = spawnSync(process.execPath, ['--check', hook], { encoding: 'utf8' });
+  check(`${hook} parses`, result.status === 0, result.stderr.split('\n')[0]);
 }
 
 /**
@@ -123,7 +123,7 @@ if (existsSync(GUARD)) {
  * guards. `example.invalid` is the reserved address the hook tests commit as.
  */
 const PERSONAL = /[A-Z]:[\\/](Users|dev)[\\/]|\/[a-z]\/Users\/|[\w.+-]+@(?!example\.invalid\b)[\w-]+\.[\w.]+/i;
-const committed = ['.claude/settings.json', '.claude/README.md', ...agentFiles, ...skillFiles, GUARD,
+const committed = ['.claude/settings.json', '.claude/README.md', ...agentFiles, ...skillFiles, ...hookFiles,
   'scripts/claude/setup.ts', 'scripts/claude/hooks.ts'];
 for (const file of committed.filter((f) => existsSync(f))) {
   const hit = readFileSync(file, 'utf8').match(PERSONAL);
