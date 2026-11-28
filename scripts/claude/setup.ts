@@ -5,12 +5,13 @@
  *
  * Everything here is project scope on purpose: the owner's rule is that this
  * repo's Claude Code setup changes nothing outside it. The setup is a clean
- * slate: no plugins, hooks, agents or MCP servers, only the project skills.
+ * slate: no plugins, agents or MCP servers, the project skills and one
+ * safety hook (guard-shell).
  *
  * The repo is public, so nothing committed under `.claude/` may carry a personal path or an email address. It reads only tracked files
  * and the ones it names, so it passes the same on CI's clean clone.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -32,12 +33,20 @@ const settings = readJson('.claude/settings.json');
 check('.claude/settings.json parses', settings !== null);
 
 // Clean slate: the project switches on nothing, and claude.ai connectors
-// follow the user's defaults.
-for (const key of ['enabledPlugins', 'hooks', 'enabledMcpjsonServers', 'disableClaudeAiConnectors']) {
+// follow the user's defaults. The one hook left is the guard-shell safety net.
+for (const key of ['enabledPlugins', 'enabledMcpjsonServers', 'disableClaudeAiConnectors']) {
   check(`.claude/settings.json sets no ${key}`, settings !== null && !(key in settings));
 }
 check('the project has no .mcp.json', !existsSync('.mcp.json'));
-check('the project has no hooks folder', !existsSync('.claude/hooks'));
+
+// Hook wiring: the guard runs from the project root's copy, and a command
+// naming a script that is not there would fail on every tool call.
+interface HookEntry { matcher?: string; hooks?: Array<{ type?: string; command?: string }> }
+const hooks = (settings?.hooks ?? {}) as Record<string, HookEntry[]>;
+check('guard-shell is the only hook', JSON.stringify(Object.keys(hooks)) === '["PreToolUse"]' && hooks.PreToolUse.length === 1
+  && hooks.PreToolUse[0].matcher === 'Bash|PowerShell' && (hooks.PreToolUse[0].hooks ?? []).length === 1
+  && hooks.PreToolUse[0].hooks?.[0].command === 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.mjs"', JSON.stringify(hooks));
+check('the guard-shell script exists', existsSync('.claude/hooks/guard-shell.mjs'));
 
 const ignored = readFileSync('.gitignore', 'utf8').split(/\r?\n/);
 check('.gitignore keeps per-machine settings out', ignored.includes('.claude/settings.local.json'));
@@ -98,13 +107,22 @@ if (skillFiles.includes('.claude/skills/inwire-visual-design/SKILL.md')) {
 const local = readJson('.claude/settings.local.json');
 if (local) check('no local override hides a project skill', !('skillOverrides' in local));
 
+// tsc never sees `.claude/`, so a syntax error in the guard would only show as
+// a hook that silently allows everything.
+const GUARD = '.claude/hooks/guard-shell.mjs';
+if (existsSync(GUARD)) {
+  const result = spawnSync(process.execPath, ['--check', GUARD], { encoding: 'utf8' });
+  check(`${GUARD} parses`, result.status === 0, result.stderr.split('\n')[0]);
+}
+
 /**
  * A personal path or an email address in a public file. Generic on purpose:
  * naming the owner's profile folder here would publish the very thing it
  * guards. `example.invalid` is the reserved address the hook tests commit as.
  */
 const PERSONAL = /[A-Z]:[\\/](Users|dev)[\\/]|\/[a-z]\/Users\/|[\w.+-]+@(?!example\.invalid\b)[\w-]+\.[\w.]+/i;
-const committed = ['.claude/settings.json', '.claude/README.md', ...skillFiles, 'scripts/claude/setup.ts'];
+const committed = ['.claude/settings.json', '.claude/README.md', ...skillFiles, GUARD,
+  'scripts/claude/setup.ts', 'scripts/claude/hooks.ts'];
 for (const file of committed.filter((f) => existsSync(f))) {
   const hit = readFileSync(file, 'utf8').match(PERSONAL);
   check(`${file} carries nothing personal`, hit === null, hit?.[0]);

@@ -25,7 +25,7 @@ full gate once.
 - **Docs.** For a changed CLAUDE.md, doc, skill or agent, run
   `npx tsx scripts/docs/claude-md-refs.ts`.
 - **This setup.** For a change under `.claude/`, run
-  `npx tsx scripts/claude/setup.ts`.
+  `npx tsx scripts/claude/setup.ts` and `npx tsx scripts/claude/hooks.ts`.
 - **Renderer, Electron or Worker code.** Run `npm run build` first, because
   `check` does not build and integration checks would test stale output.
   Never build under a running `npm run start:app`, because that breaks its lazy
