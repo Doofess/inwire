@@ -4,8 +4,9 @@ Everything here is **project scope**. It shapes Claude Code sessions in Inwire
 and nothing else, and it is committed so every machine gets the same setup.
 Per-machine choices go in settings.local.json beside it, which is gitignored.
 
-The setup is a clean slate: no plugins, language servers, agents or MCP
-servers. The project skills and one safety hook are here.
+The setup is a clean slate: no plugins, language servers, agents or project
+MCP servers. The project skills and one safety hook are here. claude.ai
+connectors are left at the account's defaults on purpose.
 
 ## What is here
 

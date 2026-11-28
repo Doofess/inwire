@@ -15,7 +15,7 @@
  * lets the call through: it is a guard against slips, not a security boundary.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -158,6 +158,8 @@ for (const [name, input] of FAIL_OPEN) {
       worktrees.push(inside(name));
     }
     symlinkSync(path.join(main, 'node_modules'), path.join(inside('wt'), 'node_modules'), 'junction');
+    check('the test worktree\'s node_modules is a link to main\'s', lstatSync(path.join(inside('wt'), 'node_modules')).isSymbolicLink()
+      && existsSync(path.join(inside('wt'), 'node_modules', 'marker.txt')));
 
     const msys = (p: string) => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`);
     const NPM_DENY: Array<[string, Shell, string]> = [
