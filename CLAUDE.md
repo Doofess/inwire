@@ -192,7 +192,7 @@ invariant marked "unenforced" there means exactly that.
   The app binds the UDP socket, in a utilityProcess, unprivileged; the exporter address
   is an intake filter, not authentication. A bind of `0.0.0.0` is refused.
 - Never commit personal capture fixtures, key logs, certificates or signing credentials
-  (`scripts/sign/signing.ts`). `test/` holds the owner's loose real files: gitignored.
+  (`scripts/sign/signing.ts`). `test/` holds the owner's loose real files: gitignored. Never commit, print or quote them.
 
 ### Capture correctness
 

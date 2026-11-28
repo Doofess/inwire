@@ -27,6 +27,10 @@ servers. The project skills and one safety hook are here.
   change every other project.
 - **This repo is public.** No personal paths, user names or email addresses
   in anything committed here. `scripts/claude/setup.ts` fails on them.
+- **A new worktree has no `node_modules`.** Run `npm ci` in it before `tsx`,
+  `tsc` or the checks. If you junction main's copy in instead, never run npm
+  through the junction: guard-shell refuses it, because npm would empty and
+  rewrite main's packages.
 - **The hook is plain Node with no dependencies, and it fails open.** A hook
   that cannot read its input allows the call. It is a guard against slips,
   not a security boundary: native Windows has no sandbox.

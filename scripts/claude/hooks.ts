@@ -14,7 +14,9 @@
  * heredoc, a grep pattern - goes through. A hook that cannot read its input
  * lets the call through: it is a guard against slips, not a security boundary.
  */
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 let failures = 0;
@@ -130,6 +132,73 @@ const FAIL_OPEN: Array<[string, unknown]> = [
 for (const [name, input] of FAIL_OPEN) {
   const r = run('guard-shell.mjs', input);
   check(`guard-shell lets the call through on ${name}`, r.code === 0 && r.decision === null, r.stdout || `exit ${r.code}`);
+}
+
+// ---- guard-shell: npm aimed at a linked node_modules ------------------------
+
+// A real repository in a temp directory, because the guard asks git which
+// worktrees exist. One worktree's node_modules is junctioned by hand to main's,
+// which holds a marker, so removing that worktree is seen not to empty it.
+{
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'inwire-hooks-')));
+  const main = path.join(root, 'main');
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+  const inside = (name: string) => path.join(main, '.claude', 'worktrees', name);
+  const worktrees: string[] = [];
+  try {
+    mkdirSync(main);
+    git(main, 'init', '-q');
+    writeFileSync(path.join(main, 'package-lock.json'), '{}\n');
+    git(main, 'add', '.');
+    git(main, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init');
+    mkdirSync(path.join(main, 'node_modules'));
+    writeFileSync(path.join(main, 'node_modules', 'marker.txt'), 'main');
+    for (const name of ['wt', 'wt3']) {
+      git(main, 'worktree', 'add', '-q', '-b', name, inside(name));
+      worktrees.push(inside(name));
+    }
+    symlinkSync(path.join(main, 'node_modules'), path.join(inside('wt'), 'node_modules'), 'junction');
+
+    const msys = (p: string) => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`);
+    const NPM_DENY: Array<[string, Shell, string]> = [
+      ['npm ci', 'Bash', inside('wt')],
+      ['npm install', 'PowerShell', inside('wt')],
+      ['npm i -D tsx', 'Bash', inside('wt')],
+      ['npm uninstall tsx', 'Bash', inside('wt')],
+      ['npm --prefix .claude/worktrees/wt ci', 'Bash', main],
+      [`npm install --prefix="${inside('wt').replace(/\\/g, '/')}"`, 'Bash', main],
+      ['cd .claude/worktrees/wt && npm ci', 'Bash', main],
+      [`cd "${msys(inside('wt'))}" && npm install`, 'Bash', main],
+      ['Set-Location .claude/worktrees/wt; npm ci', 'PowerShell', main],
+    ];
+    for (const [command, shell, cwd] of NPM_DENY) {
+      const r = run('guard-shell.mjs', { ...shellCall({ command, shell }), cwd });
+      check(`guard-shell denies ${shell} ${JSON.stringify(command)} through a node_modules link`, r.decision === 'deny' && r.reason.includes('rewrite main'), r.stdout || `exit ${r.code}`);
+    }
+    const NPM_ALLOW: Array<[string, string]> = [
+      ['npm ci', main],
+      ['npm run build', inside('wt')],
+      ['npx tsx scripts/x.ts', inside('wt')],
+      ['cd .claude/worktrees/wt3 && npm ci', main],
+      ['cd .claude/worktrees/wt && cd ../../.. && npm ci', main],
+    ];
+    for (const [command, cwd] of NPM_ALLOW) {
+      const r = run('guard-shell.mjs', { ...shellCall({ command }), cwd });
+      check(`guard-shell allows ${JSON.stringify(command)} where node_modules is not a link`, r.code === 0 && r.decision === null, r.stdout || `exit ${r.code}`);
+    }
+
+    git(main, 'worktree', 'remove', '--force', inside('wt'));
+    worktrees.splice(worktrees.indexOf(inside('wt')), 1);
+    check('removing a linked worktree leaves main\'s node_modules alone', existsSync(path.join(main, 'node_modules', 'marker.txt')));
+  } catch (error) {
+    check('guard-shell npm test repository', false, String(error));
+  } finally {
+    for (const wt of worktrees) {
+      try { git(main, 'worktree', 'remove', '--force', wt); } catch { /* reported by the rows */ }
+    }
+    // A missing marker means a removal reached through a link: keep the evidence.
+    if (existsSync(path.join(main, 'node_modules', 'marker.txt'))) rmSync(root, { recursive: true, force: true });
+  }
 }
 
 if (failures) {

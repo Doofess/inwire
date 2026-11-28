@@ -32,21 +32,23 @@ function readJson(file: string): Record<string, unknown> | null {
 const settings = readJson('.claude/settings.json');
 check('.claude/settings.json parses', settings !== null);
 
-// Clean slate: the project switches on nothing, and claude.ai connectors
-// follow the user's defaults. The one hook left is the guard-shell safety net.
-for (const key of ['enabledPlugins', 'enabledMcpjsonServers', 'disableClaudeAiConnectors']) {
-  check(`.claude/settings.json sets no ${key}`, settings !== null && !(key in settings));
-}
+// No MCP server: every server's instructions ride along in every turn.
+check('no MCP server is pre-approved', settings !== null && !('enabledMcpjsonServers' in settings));
 check('the project has no .mcp.json', !existsSync('.mcp.json'));
 
-// Hook wiring: the guard runs from the project root's copy, and a command
+// Hook wiring: each hook runs from the project root's copy, and a command
 // naming a script that is not there would fail on every tool call.
-interface HookEntry { matcher?: string; hooks?: Array<{ type?: string; command?: string }> }
+interface HookEntry { matcher?: string; hooks?: Array<{ type?: string; command?: string; timeout?: number }> }
 const hooks = (settings?.hooks ?? {}) as Record<string, HookEntry[]>;
-check('guard-shell is the only hook', JSON.stringify(Object.keys(hooks)) === '["PreToolUse"]' && hooks.PreToolUse.length === 1
-  && hooks.PreToolUse[0].matcher === 'Bash|PowerShell' && (hooks.PreToolUse[0].hooks ?? []).length === 1
-  && hooks.PreToolUse[0].hooks?.[0].command === 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.mjs"', JSON.stringify(hooks));
-check('the guard-shell script exists', existsSync('.claude/hooks/guard-shell.mjs'));
+check('guard-shell runs before every Bash and PowerShell call, with 10 seconds', (hooks.PreToolUse ?? []).some((e) =>
+  e.matcher === 'Bash|PowerShell' && (e.hooks ?? []).some((h) => h.type === 'command'
+    && h.command === 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.mjs"' && h.timeout === 10)), JSON.stringify(hooks.PreToolUse));
+for (const entry of Object.values(hooks).flat()) {
+  for (const h of entry.hooks ?? []) {
+    const script = h.command?.match(/\.claude\/hooks\/([\w.-]+\.mjs)/)?.[1];
+    check(`hook command ${h.command} names a script that exists`, script !== undefined && existsSync(`.claude/hooks/${script}`));
+  }
+}
 
 const ignored = readFileSync('.gitignore', 'utf8').split(/\r?\n/);
 check('.gitignore keeps per-machine settings out', ignored.includes('.claude/settings.local.json'));
@@ -72,7 +74,7 @@ function inDir(dir: string, pick: (name: string) => string | null): string[] {
     .map((f) => `${dir}/${f}`);
 }
 const skillFiles = inDir('.claude/skills', (n) => (n.endsWith('/') ? `${n}SKILL.md` : null));
-check('the project has no agents', inDir('.claude/agents', (n) => (n.endsWith('.md') ? n : null)).length === 0);
+const agentFiles = inDir('.claude/agents', (n) => (n.endsWith('.md') ? n : null));
 
 // Skills: each is listed in full so Claude can pick it, and a `paths:` scope
 // that matches no file would quietly never load it.
@@ -121,7 +123,7 @@ if (existsSync(GUARD)) {
  * guards. `example.invalid` is the reserved address the hook tests commit as.
  */
 const PERSONAL = /[A-Z]:[\\/](Users|dev)[\\/]|\/[a-z]\/Users\/|[\w.+-]+@(?!example\.invalid\b)[\w-]+\.[\w.]+/i;
-const committed = ['.claude/settings.json', '.claude/README.md', ...skillFiles, GUARD,
+const committed = ['.claude/settings.json', '.claude/README.md', ...agentFiles, ...skillFiles, GUARD,
   'scripts/claude/setup.ts', 'scripts/claude/hooks.ts'];
 for (const file of committed.filter((f) => existsSync(f))) {
   const hit = readFileSync(file, 'utf8').match(PERSONAL);
