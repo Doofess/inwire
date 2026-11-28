@@ -1,8 +1,8 @@
 // PreToolUse hook for the Bash and PowerShell tools. It denies three slips:
 //   - Windows-side Python (the Microsoft Store stub hangs the shell);
 //   - `npm run check` / `npx tsx scripts/check.ts` held in the foreground;
-//   - npm that writes node_modules where node_modules is a link. ensure-modules
-//     junctions main's copy into worktrees, and npm ci there would empty it.
+//   - npm that writes node_modules where node_modules is a link. A worktree's
+//     node_modules may be a junction to main's copy, and npm ci there would empty it.
 // Only the command word of each real segment is read, so text that merely
 // mentions any of them (a commit message, a heredoc, a grep pattern) goes
 // through. A `cd` or `Set-Location` segment moves where npm is taken to run.

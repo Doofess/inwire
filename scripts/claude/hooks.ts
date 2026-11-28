@@ -15,7 +15,7 @@
  * lets the call through: it is a guard against slips, not a security boundary.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -134,20 +134,16 @@ for (const [name, input] of FAIL_OPEN) {
   check(`guard-shell lets the call through on ${name}`, r.code === 0 && r.decision === null, r.stdout || `exit ${r.code}`);
 }
 
-// ---- ensure-modules: node_modules in new worktrees ---------------------------
+// ---- guard-shell: npm aimed at a linked node_modules ------------------------
 
-// A real repository in a temp directory, because the hook asks git which
-// worktrees exist. Main's node_modules holds a marker, so a link is seen to
-// lead to main's copy, and removing a worktree is seen not to empty it.
+// A real repository in a temp directory, because the guard asks git which
+// worktrees exist. One worktree's node_modules is junctioned by hand to main's,
+// which holds a marker, so removing that worktree is seen not to empty it.
 {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'inwire-hooks-')));
   const main = path.join(root, 'main');
   const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
   const inside = (name: string) => path.join(main, '.claude', 'worktrees', name);
-  const outside = path.join(root, 'outside');
-  const linked = (wt: string) => {
-    try { return lstatSync(path.join(wt, 'node_modules')).isSymbolicLink() && existsSync(path.join(wt, 'node_modules', 'marker.txt')); } catch { return false; }
-  };
   const worktrees: string[] = [];
   try {
     mkdirSync(main);
@@ -157,38 +153,14 @@ for (const [name, input] of FAIL_OPEN) {
     git(main, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init');
     mkdirSync(path.join(main, 'node_modules'));
     writeFileSync(path.join(main, 'node_modules', 'marker.txt'), 'main');
-    for (const [wt, branch] of [[inside('wt'), 'wt'], [outside, 'outside']]) {
-      git(main, 'worktree', 'add', '-q', '-b', branch, wt);
-      worktrees.push(wt);
-    }
-
-    const added = run('ensure-modules.mjs', { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'git worktree add .claude/worktrees/wt' }, cwd: main });
-    check('ensure-modules links main\'s node_modules into a new worktree', added.code === 0 && linked(inside('wt')), added.stdout || `exit ${added.code}`);
-    check('ensure-modules tells Claude what it linked', added.stdout.includes('Linked node_modules into:') && added.stdout.includes('"hookEventName":"PostToolUse"'), added.stdout);
-    // The worktree's lockfile is the committed one, checked out with CRLF under autocrlf.
-    check('ensure-modules does not warn about a lockfile that differs only in line endings', !added.stdout.includes('differs'), added.stdout);
-    check('ensure-modules does not link a worktree outside .claude/worktrees', !existsSync(path.join(outside, 'node_modules')));
-
-    const again = run('ensure-modules.mjs', { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'git worktree add .claude/worktrees/wt' }, cwd: main });
-    check('ensure-modules run twice changes nothing and says nothing', again.code === 0 && again.stdout === '' && linked(inside('wt')), again.stdout);
-
-    for (const name of ['wt2', 'wt3']) {
+    for (const name of ['wt', 'wt3']) {
       git(main, 'worktree', 'add', '-q', '-b', name, inside(name));
       worktrees.push(inside(name));
     }
-    // npm ci empties node_modules' entries, and through a junction those are main's.
-    writeFileSync(path.join(inside('wt3'), 'package-lock.json'), '{"changed":true}\n');
-    const ls = run('ensure-modules.mjs', { hook_event_name: 'PostToolUse', tool_name: 'PowerShell', tool_input: { command: 'ls' }, cwd: main });
-    check('ensure-modules ignores a shell command that adds no worktree', ls.code === 0 && ls.stdout === '' && !existsSync(path.join(inside('wt2'), 'node_modules')), ls.stdout);
+    symlinkSync(path.join(main, 'node_modules'), path.join(inside('wt'), 'node_modules'), 'junction');
+    check('the test worktree\'s node_modules is a link to main\'s', lstatSync(path.join(inside('wt'), 'node_modules')).isSymbolicLink()
+      && existsSync(path.join(inside('wt'), 'node_modules', 'marker.txt')));
 
-    const subagent = run('ensure-modules.mjs', { hook_event_name: 'SubagentStart', cwd: main });
-    check('ensure-modules links at SubagentStart, for isolation: worktree agents', subagent.code === 0 && linked(inside('wt2')), subagent.stdout || `exit ${subagent.code}`);
-    check('ensure-modules never links a worktree whose lockfile differs from main\'s', !existsSync(path.join(inside('wt3'), 'node_modules')));
-    check('ensure-modules says why it left that worktree alone', subagent.stdout.includes('not linked') && subagent.stdout.includes('package-lock.json differs'), subagent.stdout);
-    check('ensure-modules tells Claude never to run npm through the junction', subagent.stdout.includes('rewrite main\'s packages'), subagent.stdout);
-    check('ensure-modules still never links the outside worktree', !existsSync(path.join(outside, 'node_modules')));
-
-    // guard-shell: npm that rewrites packages, aimed at a linked node_modules.
     const msys = (p: string) => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d: string) => `/${d.toLowerCase()}`);
     const NPM_DENY: Array<[string, Shell, string]> = [
       ['npm ci', 'Bash', inside('wt')],
@@ -220,13 +192,8 @@ for (const [name, input] of FAIL_OPEN) {
     git(main, 'worktree', 'remove', '--force', inside('wt'));
     worktrees.splice(worktrees.indexOf(inside('wt')), 1);
     check('removing a linked worktree leaves main\'s node_modules alone', existsSync(path.join(main, 'node_modules', 'marker.txt')));
-
-    for (const [name, input] of [['empty stdin', ''], ['input that is not JSON', 'not json'], ['a cwd that is not a repository', { hook_event_name: 'SubagentStart', cwd: root }]] as Array<[string, unknown]>) {
-      const r = run('ensure-modules.mjs', input);
-      check(`ensure-modules exits cleanly on ${name}`, r.code === 0 && r.stdout === '', r.stdout || `exit ${r.code}`);
-    }
   } catch (error) {
-    check('ensure-modules test repository', false, String(error));
+    check('guard-shell npm test repository', false, String(error));
   } finally {
     for (const wt of worktrees) {
       try { git(main, 'worktree', 'remove', '--force', wt); } catch { /* reported by the rows */ }

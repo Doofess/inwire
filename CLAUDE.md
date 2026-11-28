@@ -79,7 +79,7 @@ requests are the four renderer lookups and the three main-process ones listed in
   enforcing script for every invariant below.
 - `docs/decisions/README.md`: decision index, status and supersession notes.
 - `docs/history.md` and historic specs explain past decisions, not current behavior.
-- `.claude/README.md`: this repo's Claude Code setup: settings, hooks, skills, the worker.
+- `.claude/README.md`: this repo's Claude Code setup: settings and skills.
 
 Read the relevant sections for your task; do not load every reference by default.
 An accepted ADR is a decision, not proof that its implementation has landed; check code.
@@ -192,7 +192,7 @@ invariant marked "unenforced" there means exactly that.
   The app binds the UDP socket, in a utilityProcess, unprivileged; the exporter address
   is an intake filter, not authentication. A bind of `0.0.0.0` is refused.
 - Never commit personal capture fixtures, key logs, certificates or signing credentials
-  (`scripts/sign/signing.ts`). `test/` holds the owner's loose real files: gitignored.
+  (`scripts/sign/signing.ts`). `test/` holds the owner's loose real files: gitignored. Never commit, print or quote them.
 
 ### Capture correctness
 
